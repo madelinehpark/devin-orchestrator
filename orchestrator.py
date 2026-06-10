@@ -275,6 +275,29 @@ class Orchestrator:
             self._threads.append(thread)
         return len(fresh)
 
+    def refresh_pr_states(self) -> None:
+        """Mirror PR merge/close state onto finished records (real GitHub only)."""
+        if not hasattr(self.issues, "get_pr_state"):
+            return
+        for record in list(self.store.results):
+            if record.get("status") != "finished" or not record.get("pr_url"):
+                continue
+            try:
+                pr_state = self.issues.get_pr_state(record["pr_url"])
+            except Exception as exc:
+                logger.warning("PR state check failed (%s); will retry", type(exc).__name__)
+                continue
+            if pr_state and pr_state != record.get("pr_state"):
+                record["pr_state"] = pr_state
+                self.store.upsert_result(record)
+                if pr_state in ("merged", "closed"):
+                    self.store.append_event(
+                        f"PR for issue #{record['issue_number']} was {pr_state}: {record['pr_url']}",
+                        record["issue_number"],
+                        "done" if pr_state == "merged" else "info",
+                    )
+                    logger.info("PR %s for issue #%s", pr_state.upper(), record["issue_number"])
+
     def run(self, run_once: bool = False) -> None:
         logger.info(
             "orchestrator up [build: pr-gated-completion+retries] — devin=%s issues=%s poll_interval=%ss",
@@ -286,6 +309,7 @@ class Orchestrator:
             dispatched = self.poll_once()
             if dispatched:
                 logger.info("dispatched %d new issue(s)", dispatched)
+            self.refresh_pr_states()
             if run_once:
                 break
             self._stop.wait(self.poll_interval)

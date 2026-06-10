@@ -5,7 +5,9 @@ from __future__ import annotations
 import abc
 import logging
 import os
+import re
 from dataclasses import dataclass
+from typing import Optional
 
 import requests
 
@@ -71,6 +73,24 @@ class GitHubClient(IssueSource):
             params = None  # the "next" link already carries the query string
         logger.debug("found %d open '%s' issue(s) in %s", len(issues), self.label, self.repo)
         return issues
+
+
+    PR_URL_RE = re.compile(r"github\.com/([^/]+)/([^/]+)/pull/(\d+)")
+
+    def get_pr_state(self, pr_url: str) -> Optional[str]:
+        """'open' | 'merged' | 'closed' for a PR URL, or None if unknown."""
+        m = self.PR_URL_RE.search(pr_url or "")
+        if not m:
+            return None
+        owner, repo, number = m.groups()
+        resp = self._session.get(
+            f"{self.API}/repos/{owner}/{repo}/pulls/{number}", timeout=self.request_timeout
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("merged") or data.get("merged_at"):
+            return "merged"
+        return data.get("state")  # open | closed
 
 
 class MockIssueSource(IssueSource):

@@ -89,6 +89,7 @@
   .dot.running, .dot.dispatching { background: var(--amber); }
   .dot.updating { background: var(--accent); }
   .dot.finished { background: var(--green); }
+  .dot.merged { background: #8957e5; }
   .dot.blocked, .dot.failed, .dot.suspended { background: var(--red); }
   .pulse { animation: pulse 2s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: 0.35; } }
@@ -230,7 +231,7 @@ async function refresh() {
   } catch (e) { /* not written yet */ }
 
   const inflight = results.filter(r => IN_FLIGHT.has(r.status)).length;
-  const done = results.filter(r => r.status === "finished").length;
+  const done = results.filter(r => r.status === "finished" || r.pr_state === "merged").length;
   const failed = results.length - inflight - done;
   document.getElementById("stats").innerHTML = [
     [results.length, "Dispatched"],
@@ -249,9 +250,12 @@ async function refresh() {
   } else {
     list.innerHTML = results.map(r => {
       const live = IN_FLIGHT.has(r.status);
+      const merged = r.pr_state === "merged";
+      const dotClass = merged ? "merged" : esc(r.status);
+      const label = merged ? "Merged" : (STATUS_LABEL[r.status] || esc(r.status));
       const meta = [
         `#${r.issue_number}`,
-        `<span class="dot ${esc(r.status)}${live ? " pulse" : ""}"></span> ${STATUS_LABEL[r.status] || esc(r.status)}` +
+        `<span class="dot ${dotClass}${live ? " pulse" : ""}"></span> ${label}` +
           (r.status_detail ? ` — ${esc(r.status_detail)}` : ""),
         elapsed(r),
         r.session_url ? `<a class="session" href="${esc(r.session_url)}" target="_blank">See Devin session ↗</a>` : null,
@@ -267,7 +271,7 @@ async function refresh() {
         </div>
         <div class="side">
           ${r.acus_consumed ? `<span class="acus">${r.acus_consumed} ACU</span>` : ""}
-          ${r.pr_url ? `<a class="pr" href="${esc(r.pr_url)}" target="_blank">View PR →</a>` : ""}
+          ${r.pr_url ? `<a class="pr" href="${esc(r.pr_url)}" target="_blank">${r.pr_state === "merged" ? "Merged" : "View PR"} →</a>` : ""}
         </div>
       </div>`;
     }).join("");

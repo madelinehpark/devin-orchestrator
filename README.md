@@ -1,70 +1,123 @@
 # Devin Auto-Remediation Orchestrator
 
-Event-driven pipeline: GitHub issues labeled **`auto-fix`** are dispatched to
-[Devin](https://devin.ai) (Cognition's autonomous coding agent) via its REST API.
-Each session is tracked to completion and the resulting pull request is reported
-on a live dashboard.
+An event-driven pipeline that turns labeled GitHub issues into reviewed pull requests —
+autonomously. Label an issue **`auto-fix`**, and the orchestrator dispatches
+[Devin](https://devin.ai) (Cognition's AI software engineer) to fix it, tracks the session
+to completion, and reports the resulting PR on a live dashboard. PR review comments are
+addressed autonomously too; merges stay behind human review.
+
+Proven against a real codebase: three bugs in
+[Apache Superset](https://github.com/madelinehpark/superset) (~1.5M LOC) went from
+labeled issue to reviewable PR with no human in the loop —
+[a frontend validation bug](https://github.com/madelinehpark/superset/pull/8) (merged),
+[a backend data-correctness regression](https://github.com/madelinehpark/superset/pull/9),
+and [a cross-component regression](https://github.com/madelinehpark/superset/pull/10) whose
+root cause was a subtle prop-coupling issue two refactors deep.
 
 ```
-GitHub issues (label: auto-fix)
-        │  poll every POLL_INTERVAL
-        ▼
-  orchestrator.py ──► Devin API (one session per issue, ACU-capped)
-        │                   │ poll w/ backoff until finished/blocked
-        ▼                   ▼
-  state/results.json ◄── structured output {pr_url, status, summary}
-        │
-        ▼
-  dashboard (static HTML, auto-refreshing)
+                 ┌────────────────────────────────────────────────────────┐
+                 │                      orchestrator                      │
+GitHub issues ──▶│  poll `auto-fix` label ──▶ dispatch Devin session      │
+ (label event)   │  poll session w/ backoff ──▶ track to completion       │──▶ pull request
+                 │  watch for PR review feedback ──▶ Devin re-engages     │    (human review,
+                 │  mirror PR merge state                                 │     then merge)
+                 └──────────────────────┬─────────────────────────────────┘
+                                        ▼
+                          state/*.json ──▶ live dashboard
+                          (results, activity feed, config)
 ```
 
-## Architecture
-
-| File | Role |
-|---|---|
-| `devin_client.py` | `RealDevinClient` (Devin API v3, Bearer auth, ACU cap, structured output schema) + `MockDevinClient` (no network; happy / slow / blocked scenarios) behind one interface. `DEVIN_MODE=mock\|real`. |
-| `github_client.py` | Lists open issues with the configured label via the GitHub REST API; PRs filtered out. `MockIssueSource` provides canned issues when no token is set. |
-| `orchestrator.py` | Main loop: fetch labeled issues → skip already-processed (`state/processed.json`) → one Devin session per issue, tracked concurrently → results to `state/results.json`. |
-| `dashboard/` | Single static page: per-issue status, PR links, totals. No framework. |
-
-## Run in mock mode (zero credentials)
+## Quick start — simulate the workflow (zero credentials)
 
 ```bash
 docker compose up --build
 # dashboard: http://localhost:8080/dashboard/
 ```
 
-Or without Docker:
+Mock mode runs the full pipeline with no network calls to Devin and no GitHub token:
+three canned issues are dispatched concurrently and exercise the happy path, the
+slow path, and the blocked path — so you'll see every dashboard state (in progress
+with live narration, done with a PR link, and needs-attention) plus the activity
+feed, within about two minutes. The dashboard shows an amber **SIMULATION** badge
+so mock mode is never mistaken for live.
+
+Without Docker:
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python orchestrator.py            # mock devin + canned issues
-python3 -m http.server 8080 &               # serve dashboard from repo root
-open http://localhost:8080/dashboard/
+.venv/bin/python orchestrator.py &
+.venv/bin/python -m http.server 8080
+# http://localhost:8080/dashboard/
 ```
 
-Three canned issues run through the happy, slow, and blocked paths.
+## Run it for real
 
-## Run real
+Prerequisites: a Devin account with API access (service-user key + org id), the Devin
+GitHub app installed on the target repo, and a GitHub fine-grained PAT scoped to that
+repo (Issues r/w, Pull requests r/w, Contents read).
 
 ```bash
-cp .env.example .env   # fill in DEVIN_API_KEY, DEVIN_ORG_ID, GITHUB_TOKEN, GITHUB_REPO
-# set DEVIN_MODE=real
+cp .env.example .env     # fill in DEVIN_API_KEY, DEVIN_ORG_ID, GITHUB_TOKEN, GITHUB_REPO
+                         # set DEVIN_MODE=real
 docker compose up --build
 ```
 
-Label an issue `auto-fix` in the target repo. The orchestrator picks it up within
-`POLL_INTERVAL` seconds, opens a Devin session (hard-capped at `MAX_ACU_LIMIT` ACUs),
-and the PR link appears on the dashboard when the session finishes.
+Then label any open issue in the target repo with **`auto-fix`**. Within one poll
+interval the orchestrator dispatches a Devin session (hard-capped at `MAX_ACU_LIMIT`
+ACUs); the dashboard row tracks Devin's own progress narration live, links to the
+session, shows the PR the moment it opens, and flips to *Done* when the work is
+delivered. Comment on the PR and the row flips to *Addressing review* while Devin
+handles it; merge it and the row turns purple *Merged* within a poll cycle.
 
-Issues are never dispatched twice — processed numbers persist in `state/processed.json`.
-To re-run an issue, delete its entry from that file.
+## Architecture
+
+| File | Role |
+|---|---|
+| `orchestrator.py` | Main loop: fetch labeled issues → dedupe (`state/processed.json`) → one tracked Devin session per issue, concurrently → results, activity events, and live config published to `state/` for the dashboard. Follow-up watcher detects PR-review re-engagement; PR merge state is mirrored each cycle. |
+| `devin_client.py` | One interface, two implementations. `RealDevinClient`: Devin API v3 (Bearer auth, ACU cap, structured-output schema, idempotent create, capped-backoff polling, progress narration from the session message stream). `MockDevinClient`: byte-compatible no-network stand-in with deterministic happy/slow/blocked scenarios, synced to observed live-API behavior. |
+| `github_client.py` | Issue polling (label-filtered, PRs excluded, paginated) + PR state lookups. `MockIssueSource` provides canned issues when no token is configured. |
+| `dashboard/` | Single static page (no framework): per-issue status with live agent narration, session links, PR buttons, ACU spend, elapsed time, totals, and a timestamped activity feed. |
+
+## Design decisions (learned against the live API)
+
+- **Polling, not webhooks.** The Devin API exposes no webhook surface, so sessions are
+  polled with exponential backoff capped at 30s. The system is still event-driven where
+  it counts: the GitHub label is the event.
+- **Completion = PR URL delivered, not "output exists."** Devin initializes its
+  structured output early and fills it in incrementally; treating any output as
+  completion produced false "done" states. Completion is gated on the PR URL (or a
+  truly terminal session state: `blocked`, `suspended`, `expired`, `stopped`).
+- **A "finished" session isn't over.** Devin keeps the session alive to address PR
+  review comments. A lightweight watcher detects re-engagement (`status_detail`
+  flipping back to `working`) and surfaces it as *Addressing review*.
+- **Dispatch exactly once.** Processed issue numbers persist across restarts; re-running
+  an issue is an explicit operator action (delete it from `state/processed.json`).
+  Devin-side `idempotent: true` adds API-level protection (set `IDEMPOTENT=false` to
+  force a fresh session — note the dedupe window is short).
+- **Survive flaky networks.** Transient errors are one-line warnings with retries at
+  both the HTTP layer (urllib3 `Retry`) and the polling loop (5 consecutive failures
+  before giving up); a wifi blip can't kill a 30-minute session track.
+- **Guardrails by default:** per-session ACU spend cap, once-per-issue dispatch, merges
+  gated on human review, fork-scoped fine-grained token, agent isolated in Devin's
+  sandbox. The dashboard renders the *live* config, not aspirational values.
+
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DEVIN_MODE` | `mock` | `mock` = no credentials, no network to Devin; `real` = live sessions (spends ACUs) |
+| `DEVIN_API_KEY` / `DEVIN_ORG_ID` | — | Devin v3 service-user key (`cog_…`) + org id |
+| `GITHUB_TOKEN` / `GITHUB_REPO` | — | Fine-grained PAT + `owner/name`; unset token = canned mock issues |
+| `ORCHESTRATOR_LABEL` | `auto-fix` | Issues carrying this label get dispatched |
+| `MAX_ACU_LIMIT` | `5` | Hard spend cap passed to every Devin session |
+| `POLL_INTERVAL` | `30` | Seconds between GitHub polls |
+| `IDEMPOTENT` | `true` | Devin-side prompt dedupe on session create |
 
 ## Tests
 
 ```bash
-.venv/bin/pip install pytest
-.venv/bin/pytest
+.venv/bin/pip install pytest && .venv/bin/pytest
 ```
 
-Covers the poller's dedupe logic and the mock client lifecycle.
+Covers the dispatcher's dedupe logic and the mock client lifecycle (including the
+incremental-output completion semantics learned from the live API).

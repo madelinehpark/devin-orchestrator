@@ -1,0 +1,8 @@
+# never bake secrets or runtime state into the image
+.env
+.env.local
+state/
+.venv/
+.git/
+.pytest_cache/
+__pycache__/

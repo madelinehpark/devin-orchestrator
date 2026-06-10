@@ -1,0 +1,6 @@
+{
+  "repo": "madelinehpark/superset",
+  "label": "auto-fix",
+  "max_acu_limit": 5,
+  "devin_mode": "real"
+}

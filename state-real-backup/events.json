@@ -1,0 +1,122 @@
+[
+  {
+    "at": "2026-06-10T21:51:08+00:00",
+    "issue": 3,
+    "kind": "dispatch",
+    "message": "Issue #3 labeled \u2014 dispatching to Devin"
+  },
+  {
+    "at": "2026-06-10T21:51:09+00:00",
+    "issue": 3,
+    "kind": "session",
+    "message": "Devin session started for issue #3"
+  },
+  {
+    "at": "2026-06-10T21:51:14+00:00",
+    "issue": 3,
+    "kind": "devin",
+    "message": "Devin (#3): On it \u2014 reading issue madelinehpark/superset#3 now, then I'll implement the fix and open a PR."
+  },
+  {
+    "at": "2026-06-10T22:02:19+00:00",
+    "issue": 3,
+    "kind": "pr",
+    "message": "Pull request opened for issue #3: https://github.com/madelinehpark/superset/pull/9"
+  },
+  {
+    "at": "2026-06-10T22:02:19+00:00",
+    "issue": 3,
+    "kind": "done",
+    "message": "Issue #3 finished \u2014 https://github.com/madelinehpark/superset/pull/9"
+  },
+  {
+    "at": "2026-06-10T22:30:14+00:00",
+    "issue": 4,
+    "kind": "dispatch",
+    "message": "Issue #4 labeled \u2014 dispatching to Devin"
+  },
+  {
+    "at": "2026-06-10T22:30:15+00:00",
+    "issue": 4,
+    "kind": "session",
+    "message": "Devin session started for issue #4"
+  },
+  {
+    "at": "2026-06-10T22:30:21+00:00",
+    "issue": 4,
+    "kind": "devin",
+    "message": "Devin (#4): On it. I'll read issue #4 in madelinehpark/superset, implement the fix following its acceptance criteria, and open a PR."
+  },
+  {
+    "at": "2026-06-10T22:42:55+00:00",
+    "issue": 4,
+    "kind": "dispatch",
+    "message": "Issue #4 labeled \u2014 dispatching to Devin"
+  },
+  {
+    "at": "2026-06-10T22:42:56+00:00",
+    "issue": 4,
+    "kind": "session",
+    "message": "Devin session started for issue #4"
+  },
+  {
+    "at": "2026-06-10T22:43:01+00:00",
+    "issue": 4,
+    "kind": "devin",
+    "message": "Devin (#4): On it. I'll read superset#4, follow its acceptance criteria, and open a PR."
+  },
+  {
+    "at": "2026-06-10T22:48:34+00:00",
+    "issue": 4,
+    "kind": "devin",
+    "message": "Devin (#4): Session terminated"
+  },
+  {
+    "at": "2026-06-10T23:02:03+00:00",
+    "issue": 2,
+    "kind": "done",
+    "message": "PR for issue #2 was merged: https://github.com/madelinehpark/superset/pull/8"
+  },
+  {
+    "at": "2026-06-10T23:04:09+00:00",
+    "issue": 11,
+    "kind": "dispatch",
+    "message": "Issue #11 labeled \u2014 dispatching to Devin"
+  },
+  {
+    "at": "2026-06-10T23:04:09+00:00",
+    "issue": 11,
+    "kind": "session",
+    "message": "Devin session started for issue #11"
+  },
+  {
+    "at": "2026-06-10T23:04:15+00:00",
+    "issue": 11,
+    "kind": "devin",
+    "message": "Devin (#11): working"
+  },
+  {
+    "at": "2026-06-10T23:04:25+00:00",
+    "issue": 11,
+    "kind": "devin",
+    "message": "Devin (#11): On it \u2014 I'll read issue #11, implement the fix per its acceptance criteria, and open a PR."
+  },
+  {
+    "at": "2026-06-10T23:06:16+00:00",
+    "issue": 11,
+    "kind": "pr",
+    "message": "Pull request opened for issue #11: https://github.com/madelinehpark/superset/pull/12"
+  },
+  {
+    "at": "2026-06-10T23:07:47+00:00",
+    "issue": 11,
+    "kind": "devin",
+    "message": "Devin (#11): PR created and CI is green: https://github.com/madelinehpark/superset/pull/12 Adds `PIPELINE_TEST.md` at the repo root w\u2026"
+  },
+  {
+    "at": "2026-06-10T23:07:47+00:00",
+    "issue": 11,
+    "kind": "done",
+    "message": "Issue #11 finished \u2014 https://github.com/madelinehpark/superset/pull/12"
+  }
+]

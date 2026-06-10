@@ -1,0 +1,58 @@
+[
+  {
+    "issue_number": 2,
+    "issue_title": "fix(datasets): \"Duplicate\" button is enabled on initial render with empty name field",
+    "session_id": "76a3855af99b413580b3c60c37b59ea9",
+    "session_url": "https://app.devin.ai/sessions/76a3855af99b413580b3c60c37b59ea9",
+    "status": "finished",
+    "status_detail": null,
+    "pr_url": "https://github.com/madelinehpark/superset/pull/8",
+    "summary": "Initialize disableSave to true and reset it in useEffect so the Duplicate button is disabled whenever the name field is empty.",
+    "acus_consumed": null,
+    "started_at": "2026-06-10T20:22:27+00:00",
+    "finished_at": "2026-06-10T20:29:08+00:00",
+    "pr_state": "merged"
+  },
+  {
+    "issue_number": 3,
+    "issue_title": "fix(explore): relative time comparison offsets aggregate the full shifted bucket instead of the equivalent partial period",
+    "session_id": "14f7df4fc1c64d32a2f9a73ed41fa57e",
+    "session_url": "https://app.devin.ai/sessions/14f7df4fc1c64d32a2f9a73ed41fa57e",
+    "status": "finished",
+    "status_detail": null,
+    "pr_url": "https://github.com/madelinehpark/superset/pull/9",
+    "summary": "Fixed relative time comparison offsets to preserve partial-period bounds by using outer_from_dttm/outer_to_dttm as inner bounds instead of the shifted values, with unit tests added.",
+    "acus_consumed": null,
+    "started_at": "2026-06-10T21:51:08+00:00",
+    "finished_at": "2026-06-10T22:02:19+00:00",
+    "pr_state": "open"
+  },
+  {
+    "issue_number": 4,
+    "issue_title": "fix(sqllab): databases with expose_in_sqllab=false are shown in the SQL Lab database selector (6.0\u21926.1 regression)",
+    "session_id": "2dab74a34c734a8a9ab674dfcdc0d90f",
+    "session_url": "https://app.devin.ai/sessions/2dab74a34c734a8a9ab674dfcdc0d90f",
+    "status": "finished",
+    "status_detail": null,
+    "pr_url": "https://github.com/madelinehpark/superset/pull/10",
+    "summary": "Added sqlLabFilter prop to DatabaseSelector to decouple expose_in_sqllab API filtering from sqlLabMode rendering, fixing the SQL Lab picker dialog to only show databases with expose_in_sqllab=true.",
+    "acus_consumed": null,
+    "started_at": "2026-06-10T22:30:15+00:00",
+    "finished_at": "2026-06-10T22:41:32+00:00",
+    "pr_state": "open"
+  },
+  {
+    "issue_number": 11,
+    "issue_title": "chore: add pipeline verification marker file",
+    "session_id": "fdb1d6b2200548b3b55e713af033dcff",
+    "session_url": "https://app.devin.ai/sessions/fdb1d6b2200548b3b55e713af033dcff",
+    "status": "finished",
+    "status_detail": null,
+    "pr_url": "https://github.com/madelinehpark/superset/pull/12",
+    "summary": "Added PIPELINE_TEST.md at repo root with exact content from issue #11; CI green, no other files modified.",
+    "acus_consumed": null,
+    "started_at": "2026-06-10T23:04:09+00:00",
+    "finished_at": "2026-06-10T23:07:47+00:00",
+    "pr_state": "open"
+  }
+]

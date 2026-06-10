@@ -1,5 +1,7 @@
 # Devin Auto-Remediation Orchestrator
 
+**▶ [5-minute demo video](https://www.loom.com/share/82a1dd071bcf447c9a1456fb0d4d7e1d)** — live walkthrough of the pipeline fixing real Superset bugs.
+
 An event-driven pipeline that turns labeled GitHub issues into reviewed pull requests —
 autonomously. Label an issue **`auto-fix`**, and the orchestrator dispatches
 [Devin](https://devin.ai) (Cognition's AI software engineer) to fix it, tracks the session

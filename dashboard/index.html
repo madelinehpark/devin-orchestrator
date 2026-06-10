@@ -45,8 +45,8 @@
   </div>
 
   <table>
-    <thead><tr><th>Issue</th><th>Status</th><th>Session</th><th>PR</th><th>Summary</th></tr></thead>
-    <tbody id="rows"><tr><td colspan="5" class="empty">Waiting for results…</td></tr></tbody>
+    <thead><tr><th>Issue</th><th>Status</th><th>Session</th><th>PR</th><th>ACUs</th><th>Summary</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="6" class="empty">Waiting for results…</td></tr></tbody>
   </table>
 </div>
 
@@ -69,7 +69,7 @@ async function refresh() {
 
   const rows = document.getElementById("rows");
   if (!results.length) {
-    rows.innerHTML = '<tr><td colspan="5" class="empty">No sessions yet — label an issue <code>auto-fix</code>.</td></tr>';
+    rows.innerHTML = '<tr><td colspan="6" class="empty">No sessions yet — label an issue <code>auto-fix</code>.</td></tr>';
   } else {
     rows.innerHTML = results.map(r => `
       <tr>
@@ -77,6 +77,7 @@ async function refresh() {
         <td><span class="pill ${r.status}">${r.status}</span></td>
         <td class="muted">${r.session_id || "—"}</td>
         <td>${r.pr_url ? `<a href="${r.pr_url}" target="_blank">PR ↗</a>` : "—"}</td>
+        <td class="muted">${r.acus_consumed ?? "—"}</td>
         <td class="muted">${escapeHtml(r.summary || "")}</td>
       </tr>`).join("");
   }

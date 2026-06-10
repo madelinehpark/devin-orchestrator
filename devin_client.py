@@ -16,7 +16,11 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-TERMINAL_STATUSES = {"blocked", "finished"}
+# Observed via the live v3 API (state/smoke_raw.json): a session that has
+# completed its task keeps status="running" while it awaits further
+# instructions, then drifts to "suspended". It may never report "finished".
+# The reliable completion signal is a populated structured_output.
+TERMINAL_STATUSES = {"blocked", "finished", "suspended", "expired", "stopped"}
 
 STRUCTURED_OUTPUT_SCHEMA = {
     "type": "object",
@@ -33,10 +37,13 @@ class SessionState:
     session_id: str
     status: str
     structured_output: Optional[dict] = None
+    acus_consumed: Optional[float] = None
 
     @property
-    def is_terminal(self) -> bool:
-        return self.status in TERMINAL_STATUSES
+    def is_done(self) -> bool:
+        """Done = terminal status OR the agent delivered its structured output
+        (sessions idle at status="running" after completing the task)."""
+        return self.status in TERMINAL_STATUSES or bool(self.structured_output)
 
 
 class DevinClient(abc.ABC):
@@ -66,8 +73,11 @@ class DevinClient(abc.ABC):
         delay = backoff_initial
         while True:
             state = self.get_session(session_id)
-            if state.is_terminal:
-                logger.info("session %s reached terminal state: %s", session_id, state.status)
+            if state.is_done:
+                logger.info(
+                    "session %s done (status=%s, structured_output=%s)",
+                    session_id, state.status, "yes" if state.structured_output else "no",
+                )
                 return state
             if time.monotonic() >= deadline:
                 raise TimeoutError(f"session {session_id} not terminal after {timeout_seconds}s")
@@ -138,21 +148,26 @@ class RealDevinClient(DevinClient):
         resp = self._session.get(self._get_url(session_id), timeout=self.request_timeout)
         resp.raise_for_status()
         data = resp.json()
+        # live v3 returns status_enum=null; the populated field is "status"
         status = data.get("status_enum") or data.get("status") or "unknown"
         return SessionState(
             session_id=session_id,
             status=str(status).lower(),
             structured_output=data.get("structured_output"),
+            acus_consumed=data.get("acus_consumed"),
         )
 
 
 class MockDevinClient(DevinClient):
-    """No-network stand-in with deterministic failure modes.
+    """No-network stand-in, synced to the live v3 API's observed behavior:
+    in-progress sessions report status="running"; a completed session KEEPS
+    status="running" and signals completion by populating structured_output
+    (see state/smoke_raw.json from the step-27 smoke test).
 
     Sessions cycle through scenarios by creation order:
-      1st: finishes after 2 "working" polls (happy path)
-      2nd: slow — finishes after 5 polls
-      3rd: ends "blocked" (failure path)
+      1st: delivers structured output after 2 "running" polls (happy path)
+      2nd: slow — delivers after 5 polls
+      3rd: ends status="blocked" (failure path)
     then the cycle repeats. Mirrors the demo fleet: green / medium / risky.
     """
 
@@ -181,25 +196,24 @@ class MockDevinClient(DevinClient):
         scenario = self._scenario[session_id]
         self._polls[session_id] += 1
         if self._polls[session_id] <= self.POLLS_BEFORE_TERMINAL[scenario]:
-            return SessionState(session_id=session_id, status="working")
+            return SessionState(session_id=session_id, status="running")
         if scenario == "blocked":
             return SessionState(
                 session_id=session_id,
                 status="blocked",
-                structured_output={
-                    "pr_url": "",
-                    "status": "blocked",
-                    "summary": "Mock: Devin needs human input to continue.",
-                },
+                structured_output=None,
+                acus_consumed=1.5,
             )
+        # like the real API: status stays "running", structured_output appears
         return SessionState(
             session_id=session_id,
-            status="finished",
+            status="running",
             structured_output={
                 "pr_url": f"https://github.com/example/repo/pull/{900 + self._index[session_id]}",
                 "status": "success",
                 "summary": f"Mock: fixed the issue and opened a PR ({scenario} path).",
             },
+            acus_consumed=2.0,
         )
 
 

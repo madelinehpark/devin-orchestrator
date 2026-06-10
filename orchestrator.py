@@ -121,6 +121,7 @@ class Orchestrator:
             "status": "dispatching",
             "pr_url": None,
             "summary": None,
+            "acus_consumed": None,
             "started_at": utcnow(),
             "finished_at": None,
         }
@@ -142,13 +143,17 @@ class Orchestrator:
         try:
             final = self.devin.poll_until_done(session_id)
             output = final.structured_output or {}
+            # A session that delivered its structured output idles at
+            # status="running" — record that as finished.
+            outcome = "finished" if output else final.status
             record.update(
-                status=final.status,
+                status=outcome,
                 pr_url=output.get("pr_url") or None,
                 summary=output.get("summary"),
+                acus_consumed=final.acus_consumed,
                 finished_at=utcnow(),
             )
-            logger.info("%s issue #%s — pr=%s", final.status.upper(), issue.number, record["pr_url"])
+            logger.info("%s issue #%s — pr=%s acus=%s", outcome.upper(), issue.number, record["pr_url"], final.acus_consumed)
         except Exception:
             logger.exception("FAILED while polling session %s (issue #%s)", session_id, issue.number)
             record.update(status="failed", finished_at=utcnow(), summary="polling failed (see logs)")

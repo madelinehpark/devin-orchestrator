@@ -1,0 +1,22 @@
+services:
+  orchestrator:
+    build: .
+    environment:
+      DEVIN_MODE: ${DEVIN_MODE:-mock}
+      DEVIN_API_KEY: ${DEVIN_API_KEY:-}
+      DEVIN_ORG_ID: ${DEVIN_ORG_ID:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_REPO: ${GITHUB_REPO:-}
+      ORCHESTRATOR_LABEL: ${ORCHESTRATOR_LABEL:-auto-fix}
+      MAX_ACU_LIMIT: ${MAX_ACU_LIMIT:-5}
+      POLL_INTERVAL: ${POLL_INTERVAL:-30}
+    volumes:
+      - ./state:/app/state
+
+  dashboard:
+    build: .
+    command: python -m http.server 8080 --directory /app
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./state:/app/state

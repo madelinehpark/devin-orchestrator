@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Remediation Dashboard</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b21; --text:#e6e8eb; --muted:#9aa1ab; --line:#2a2f37; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  .wrap { max-width: 880px; margin: 40px auto; padding: 0 20px; }
+  h1 { font-size: 20px; font-weight:600; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .totals { display:flex; gap:12px; margin-bottom:24px; flex-wrap:wrap; }
+  .tile { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:14px 18px; min-width:120px; }
+  .tile .n { font-size:26px; font-weight:700; }
+  .tile .l { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
+  table { width:100%; border-collapse:collapse; background:var(--card);
+          border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  th, td { text-align:left; padding:10px 14px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
+  tr:last-child td { border-bottom:none; }
+  .pill { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600; }
+  .running, .dispatching { background:#1d3a5f; color:#7fb6ff; }
+  .finished { background:#16341f; color:#5fd382; }
+  .blocked, .failed { background:#3d1f22; color:#ff8a8a; }
+  a { color:#7fb6ff; text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .empty { color:var(--muted); padding:24px; text-align:center; }
+  .muted { color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Auto-Remediation Dashboard</h1>
+  <div class="sub">GitHub issues labeled <code>auto-fix</code> → Devin sessions → pull requests.
+    Updated <span id="updated" class="muted">never</span>.</div>
+
+  <div class="totals">
+    <div class="tile"><div class="n" id="t-dispatched">0</div><div class="l">Dispatched</div></div>
+    <div class="tile"><div class="n" id="t-inflight">0</div><div class="l">In-flight</div></div>
+    <div class="tile"><div class="n" id="t-succeeded">0</div><div class="l">Succeeded</div></div>
+    <div class="tile"><div class="n" id="t-failed">0</div><div class="l">Failed / blocked</div></div>
+  </div>
+
+  <table>
+    <thead><tr><th>Issue</th><th>Status</th><th>Session</th><th>PR</th><th>Summary</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="5" class="empty">Waiting for results…</td></tr></tbody>
+  </table>
+</div>
+
+<script>
+const IN_FLIGHT = new Set(["dispatching", "running"]);
+const SUCCESS = new Set(["finished"]);
+
+async function refresh() {
+  let results = [];
+  try {
+    const resp = await fetch("/state/results.json", { cache: "no-store" });
+    if (resp.ok) results = await resp.json();
+  } catch (e) { /* state file may not exist yet */ }
+
+  document.getElementById("t-dispatched").textContent = results.length;
+  document.getElementById("t-inflight").textContent = results.filter(r => IN_FLIGHT.has(r.status)).length;
+  document.getElementById("t-succeeded").textContent = results.filter(r => SUCCESS.has(r.status)).length;
+  document.getElementById("t-failed").textContent =
+    results.filter(r => !IN_FLIGHT.has(r.status) && !SUCCESS.has(r.status)).length;
+
+  const rows = document.getElementById("rows");
+  if (!results.length) {
+    rows.innerHTML = '<tr><td colspan="5" class="empty">No sessions yet — label an issue <code>auto-fix</code>.</td></tr>';
+  } else {
+    rows.innerHTML = results.map(r => `
+      <tr>
+        <td>#${r.issue_number} <span class="muted">${escapeHtml(r.issue_title || "")}</span></td>
+        <td><span class="pill ${r.status}">${r.status}</span></td>
+        <td class="muted">${r.session_id || "—"}</td>
+        <td>${r.pr_url ? `<a href="${r.pr_url}" target="_blank">PR ↗</a>` : "—"}</td>
+        <td class="muted">${escapeHtml(r.summary || "")}</td>
+      </tr>`).join("");
+  }
+  document.getElementById("updated").textContent = new Date().toLocaleTimeString();
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

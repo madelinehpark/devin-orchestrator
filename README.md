@@ -54,11 +54,6 @@ That changes the economics in three ways:
   on the dashboard, and merges stay behind human review. "Labeled = delegated" is safe
   precisely because the guardrails are structural, not behavioral.
 
-The honest boundary: this works for well-scoped, verifiable work — regressions,
-validation gaps, bugs with reproduction steps. Ambiguous or architectural problems
-still belong to humans. The point of the pipeline is that the well-scoped majority of
-a backlog no longer has to wait for one.
-
 ```
                  ┌────────────────────────────────────────────────────────┐
                  │                      orchestrator                      │
@@ -125,9 +120,8 @@ handles it; merge it and the row turns purple *Merged* within a poll cycle.
 
 ## Design decisions (learned against the live API)
 
-- **Polling, not webhooks.** The Devin API exposes no webhook surface, so sessions are
-  polled with exponential backoff capped at 30s. The system is still event-driven where
-  it counts: the GitHub label is the event.
+- **Polling, not webhooks.** Sessions are polled with exponential backoff capped at
+  30s. The system is still event-driven where it counts: the GitHub label is the event.
 - **Completion = PR URL delivered, not "output exists."** Devin initializes its
   structured output early and fills it in incrementally; treating any output as
   completion produced false "done" states. Completion is gated on the PR URL (or a

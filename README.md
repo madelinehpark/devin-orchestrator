@@ -8,11 +8,16 @@ addressed autonomously too; merges stay behind human review.
 
 Proven against a real codebase: three bugs in
 [Apache Superset](https://github.com/madelinehpark/superset) (~1.5M LOC) went from
-labeled issue to reviewable PR with no human in the loop —
-[a frontend validation bug](https://github.com/madelinehpark/superset/pull/8) (merged),
-[a backend data-correctness regression](https://github.com/madelinehpark/superset/pull/9),
-and [a cross-component regression](https://github.com/madelinehpark/superset/pull/10) whose
-root cause was a subtle prop-coupling issue two refactors deep.
+labeled issue to **merged pull request** with no human writing code —
+[a frontend validation bug](https://github.com/madelinehpark/superset/pull/8),
+[a backend data-correctness regression](https://github.com/madelinehpark/superset/pull/9)
+in time-comparison query logic, and
+[a cross-component UI regression](https://github.com/madelinehpark/superset/pull/10) whose
+root cause was a subtle prop-coupling issue two refactors deep. On the first one,
+Devin's automated review caught an edge case the issue's acceptance criteria missed
+(an Enter-key handler bypassing validation) and fixed it before any human saw the PR.
+
+![Dashboard](docs/dashboard.png)
 
 ```
                  ┌────────────────────────────────────────────────────────┐
@@ -112,6 +117,20 @@ handles it; merge it and the row turns purple *Merged* within a poll cycle.
 | `MAX_ACU_LIMIT` | `5` | Hard spend cap passed to every Devin session |
 | `POLL_INTERVAL` | `30` | Seconds between GitHub polls |
 | `IDEMPOTENT` | `true` | Devin-side prompt dedupe on session create |
+
+## Operational notes
+
+- **Run exactly one orchestrator per state directory.** Results are persisted
+  whole-file from memory; two writers (e.g. a local process plus the Docker stack)
+  will fight over `state/`.
+- **Local mock testing on a machine that has a real `.env`:** Docker Compose reads
+  `.env` for variable interpolation, so plain `docker compose up` will poll your real
+  repo (with the mock Devin). Use `GITHUB_TOKEN= docker compose up` to force the
+  canned issues. A fresh clone has no `.env`, so the zero-credential quick start
+  behaves as documented for reviewers.
+- **Re-running an issue** is an explicit operator action: remove its number from
+  `state/processed.json` and restart (set `IDEMPOTENT=false` if you want a genuinely
+  fresh session rather than Devin's prompt-level dedupe).
 
 ## Tests
 

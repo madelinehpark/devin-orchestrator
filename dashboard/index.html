@@ -34,7 +34,7 @@
 
   /* header */
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
-  header h1 { font-size: 16px; font-weight: 590; margin: 0; letter-spacing: -0.01em; }
+  header h1 { font-size: 22px; font-weight: 620; margin: 0; letter-spacing: -0.02em; }
   header .sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
   .live { display: inline-flex; align-items: center; gap: 6px; color: var(--green); font-size: 12px; font-weight: 510; }
   .live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s ease-in-out infinite; }
@@ -106,6 +106,18 @@
   a.session:hover { color: var(--muted); }
 
   .empty { color: var(--faint); padding: 40px 0; font-size: 13px; }
+
+  /* activity feed */
+  .feed-h { margin: 36px 0 0; font-size: 13px; font-weight: 590; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .feed { margin-top: 10px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; max-height: 280px; overflow-y: auto; }
+  .ev { display: flex; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .ev:last-child { border-bottom: none; }
+  .ev .t { color: var(--faint); font-variant-numeric: tabular-nums; flex: none; font-size: 12px; padding-top: 1px; }
+  .ev .m { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+  .ev.dispatch .m, .ev.session .m { color: var(--text); }
+  .ev.done .m { color: var(--green); }
+  .ev.error .m { color: var(--red); }
+  .ev.pr .m { color: var(--text); font-weight: 510; }
   footer { margin-top: 16px; color: var(--faint); font-size: 12px; display: flex; justify-content: space-between; }
 </style>
 </head>
@@ -114,7 +126,7 @@
   <header>
     <div>
       <h1>Autonomous Remediation</h1>
-      <div class="sub">Issues labeled for repair are dispatched to an autonomous engineer and returned as pull requests.</div>
+      <div class="sub">Issues labeled for repair are dispatched to Devin, your AI software engineer, and returned as pull requests.</div>
     </div>
     <span class="live"><span class="dot"></span>LIVE</span>
   </header>
@@ -154,6 +166,9 @@
   <div class="stats" id="stats"></div>
 
   <div class="list" id="list"><div class="empty">No sessions yet.</div></div>
+
+  <div class="feed-h">Activity</div>
+  <div class="feed" id="feed"><div class="ev"><span class="m" style="color:var(--faint)">No activity yet.</span></div></div>
 
   <footer>
     <span id="spend"></span>
@@ -239,7 +254,7 @@ async function refresh() {
         `<span class="dot ${esc(r.status)}${live ? " pulse" : ""}"></span> ${STATUS_LABEL[r.status] || esc(r.status)}` +
           (r.status_detail ? ` — ${esc(r.status_detail)}` : ""),
         elapsed(r),
-        r.session_url ? `<a class="session" href="${esc(r.session_url)}" target="_blank">session ↗</a>` : null,
+        r.session_url ? `<a class="session" href="${esc(r.session_url)}" target="_blank">See Devin session ↗</a>` : null,
       ].filter(Boolean).join('<span class="sep">·</span>');
       const summary = r.summary
         ? `<div class="summary"><img src="${DEVIN_AVATAR}" alt="Devin">${esc(r.summary)}</div>` : "";
@@ -257,6 +272,20 @@ async function refresh() {
       </div>`;
     }).join("");
   }
+  let events = [];
+  try {
+    const resp = await fetch("/state/events.json", { cache: "no-store" });
+    if (resp.ok) events = await resp.json();
+  } catch (e) { /* not written yet */ }
+  const feed = document.getElementById("feed");
+  if (events.length) {
+    feed.innerHTML = events.slice(-60).reverse().map(ev => `
+      <div class="ev ${esc(ev.kind || "info")}">
+        <span class="t">${new Date(ev.at).toLocaleTimeString()}</span>
+        <span class="m">${esc(ev.message)}</span>
+      </div>`).join("");
+  }
+
   document.getElementById("updated").textContent = "updated " + new Date().toLocaleTimeString();
 }
 

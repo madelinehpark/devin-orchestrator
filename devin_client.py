@@ -40,6 +40,7 @@ class SessionState:
     acus_consumed: Optional[float] = None
     status_detail: Optional[str] = None
     pull_requests: Optional[list] = None
+    last_message: Optional[str] = None  # most recent agent chat message
 
     @property
     def is_done(self) -> bool:
@@ -66,6 +67,7 @@ class DevinClient(abc.ABC):
         backoff_initial: float = 5.0,
         backoff_cap: float = 30.0,
         on_poll=None,
+        done_when=None,
     ) -> SessionState:
         """Poll with exponential backoff (capped) until blocked/finished.
 
@@ -73,14 +75,33 @@ class DevinClient(abc.ABC):
         timeout is generous. Raises TimeoutError if exceeded.
         `on_poll(state)` is invoked after every poll, so callers can
         surface live progress (status_detail, ACUs, early PR links).
+        `done_when(state)` overrides the completion test — needed because
+        Devin may initialize structured_output EARLY and update it
+        incrementally, so "any output present" can fire prematurely.
         """
         deadline = time.monotonic() + timeout_seconds
         delay = backoff_initial
+        is_done = done_when or (lambda s: s.is_done)
+        consecutive_errors = 0
         while True:
-            state = self.get_session(session_id)
+            try:
+                state = self.get_session(session_id)
+                consecutive_errors = 0
+            except Exception as exc:
+                # transient network blips must not kill a 30-minute session
+                consecutive_errors += 1
+                logger.warning(
+                    "poll error %d/5 for %s (%s); retrying",
+                    consecutive_errors, session_id, type(exc).__name__,
+                )
+                if consecutive_errors >= 5:
+                    raise
+                time.sleep(delay)
+                delay = min(delay * 2, backoff_cap)
+                continue
             if on_poll:
                 on_poll(state)
-            if state.is_done:
+            if is_done(state):
                 logger.info(
                     "session %s done (status=%s, structured_output=%s)",
                     session_id, state.status, "yes" if state.structured_output else "no",
@@ -111,6 +132,7 @@ class RealDevinClient(DevinClient):
         max_acu_limit: int = 5,
         api_version: str = "v3",
         request_timeout: float = 30.0,
+        idempotent: bool = True,
     ) -> None:
         if not api_key:
             raise ValueError("DEVIN_API_KEY is required in real mode")
@@ -121,8 +143,15 @@ class RealDevinClient(DevinClient):
         self.max_acu_limit = max_acu_limit
         self.api_version = api_version
         self.request_timeout = request_timeout
+        self.idempotent = idempotent
         self._session = requests.Session()
         self._session.headers["Authorization"] = f"Bearer {api_key}"
+        retry = requests.adapters.Retry(
+            total=2, backoff_factor=1.0,
+            status_forcelist=[429, 502, 503, 504],
+            allowed_methods=["GET"],  # POSTs surface errors to the caller
+        )
+        self._session.mount("https://", requests.adapters.HTTPAdapter(max_retries=retry))
 
     def _create_url(self) -> str:
         if self.api_version == "v1":
@@ -138,7 +167,9 @@ class RealDevinClient(DevinClient):
         body = {
             "prompt": prompt,
             "max_acu_limit": self.max_acu_limit,
-            "idempotent": True,
+            # idempotent=True dedupes identical prompts to the same session;
+            # set IDEMPOTENT=false to force a fresh session for a re-run
+            "idempotent": self.idempotent,
             "tags": ["auto-remediation"],
             "structured_output_schema": STRUCTURED_OUTPUT_SCHEMA,
         }
@@ -164,7 +195,26 @@ class RealDevinClient(DevinClient):
             acus_consumed=data.get("acus_consumed"),
             status_detail=data.get("status_detail"),
             pull_requests=data.get("pull_requests"),
+            last_message=self._latest_agent_message(session_id),
         )
+
+    def _latest_agent_message(self, session_id: str) -> Optional[str]:
+        """The session's raw status_detail is just working/waiting_for_user;
+        Devin's chat messages carry the human-readable progress narration."""
+        if self.api_version != "v3":
+            return None
+        try:
+            resp = self._session.get(
+                self._get_url(session_id) + "/messages", timeout=self.request_timeout
+            )
+            resp.raise_for_status()
+            agent_msgs = [m for m in resp.json().get("items", []) if m.get("source") == "devin"]
+            if not agent_msgs:
+                return None
+            text = " ".join((agent_msgs[-1].get("message") or "").split())
+            return (text[:120] + "…") if len(text) > 120 else (text or None)
+        except Exception:  # progress narration is best-effort only
+            return None
 
 
 class MockDevinClient(DevinClient):
@@ -210,7 +260,8 @@ class MockDevinClient(DevinClient):
             return SessionState(
                 session_id=session_id,
                 status="running",
-                status_detail=details[min(poll - 1, len(details) - 1)],
+                status_detail="working",  # raw API value; narration lives in last_message
+                last_message=details[min(poll - 1, len(details) - 1)],
                 acus_consumed=round(0.3 * poll, 1),
             )
         if scenario == "blocked":
@@ -247,5 +298,6 @@ def client_from_env() -> DevinClient:
             org_id=os.environ.get("DEVIN_ORG_ID", ""),
             max_acu_limit=int(os.environ.get("MAX_ACU_LIMIT", "5")),
             api_version=os.environ.get("DEVIN_API_VERSION", "v3"),
+            idempotent=os.environ.get("IDEMPOTENT", "true").lower() != "false",
         )
     return MockDevinClient()

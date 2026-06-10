@@ -45,6 +45,10 @@ class GitHubClient(IssueSource):
                 "Accept": "application/vnd.github+json",
             }
         )
+        retry = requests.adapters.Retry(
+            total=2, backoff_factor=1.0, status_forcelist=[429, 502, 503, 504]
+        )
+        self._session.mount("https://", requests.adapters.HTTPAdapter(max_retries=retry))
 
     def fetch_labeled_issues(self) -> list[Issue]:
         issues: list[Issue] = []

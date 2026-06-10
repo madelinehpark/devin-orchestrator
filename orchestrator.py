@@ -22,7 +22,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from devin_client import DevinClient, client_from_env
+from devin_client import TERMINAL_STATUSES, DevinClient, client_from_env
 from github_client import Issue, IssueSource, issue_source_from_env
 
 logger = logging.getLogger("orchestrator")
@@ -30,6 +30,8 @@ logger = logging.getLogger("orchestrator")
 STATE_DIR = Path(os.environ.get("STATE_DIR", "state"))
 PROCESSED_PATH = STATE_DIR / "processed.json"
 RESULTS_PATH = STATE_DIR / "results.json"
+EVENTS_PATH = STATE_DIR / "events.json"
+MAX_EVENTS = 300
 
 PROMPT_TEMPLATE = (
     "Remediate the GitHub issue at {issue_url}. "
@@ -64,13 +66,20 @@ def select_new_issues(issues: list[Issue], processed: set[int]) -> list[Issue]:
 class StateStore:
     """Thread-safe persistence for processed issue numbers and results."""
 
-    def __init__(self, processed_path: Path = PROCESSED_PATH, results_path: Path = RESULTS_PATH) -> None:
+    def __init__(
+        self,
+        processed_path: Path = PROCESSED_PATH,
+        results_path: Path = RESULTS_PATH,
+        events_path: Path = EVENTS_PATH,
+    ) -> None:
         self.processed_path = processed_path
         self.results_path = results_path
+        self.events_path = events_path
         self._lock = threading.Lock()
         self.processed_path.parent.mkdir(parents=True, exist_ok=True)
         self.processed: set[int] = set(self._read_json(self.processed_path, []))
         self.results: list[dict] = self._read_json(self.results_path, [])
+        self.events: list[dict] = self._read_json(self.events_path, [])
 
     @staticmethod
     def _read_json(path: Path, default):
@@ -89,6 +98,13 @@ class StateStore:
         with self._lock:
             self.processed.add(issue_number)
             self._write_json(self.processed_path, sorted(self.processed))
+
+    def append_event(self, message: str, issue_number: int = None, kind: str = "info") -> None:
+        """Activity-feed entry, mirrored to the dashboard."""
+        with self._lock:
+            self.events.append({"at": utcnow(), "issue": issue_number, "kind": kind, "message": message})
+            self.events = self.events[-MAX_EVENTS:]
+            self._write_json(self.events_path, self.events)
 
     def upsert_result(self, record: dict) -> None:
         """Insert or update the record keyed by issue_number."""
@@ -128,6 +144,7 @@ class Orchestrator:
             "finished_at": None,
         }
         logger.info("DISPATCH issue #%s — %s", issue.number, issue.title)
+        self.store.append_event(f"Issue #{issue.number} labeled — dispatching to Devin", issue.number, "dispatch")
         try:
             session_id = self.devin.create_session(PROMPT_TEMPLATE.format(issue_url=issue.html_url))
         except Exception:
@@ -135,6 +152,7 @@ class Orchestrator:
             record.update(status="failed", finished_at=utcnow(), summary="session creation failed (see logs)")
             self.store.upsert_result(record)
             self.store.mark_processed(issue.number)
+            self.store.append_event(f"Issue #{issue.number}: session creation failed", issue.number, "error")
             return
 
         record.update(
@@ -145,6 +163,7 @@ class Orchestrator:
         self.store.upsert_result(record)
         self.store.mark_processed(issue.number)  # never dispatch the same issue twice
         logger.info("RUNNING issue #%s in session %s", issue.number, session_id)
+        self.store.append_event(f"Devin session started for issue #{issue.number}", issue.number, "session")
 
         def on_poll(state) -> None:
             """Surface live progress: detail text, ACU burn, early PR link."""
@@ -154,19 +173,35 @@ class Orchestrator:
                 first = prs[0]
                 # live v3 shape: {"pr_url": ..., "pr_state": "open"}
                 early_pr = (first.get("pr_url") or first.get("url")) if isinstance(first, dict) else str(first)
+            narration = state.last_message or state.status_detail
+            if narration and narration != record["status_detail"]:
+                self.store.append_event(f"Devin (#{issue.number}): {narration}", issue.number, "devin")
+            if early_pr and not record["pr_url"]:
+                self.store.append_event(f"Pull request opened for issue #{issue.number}: {early_pr}", issue.number, "pr")
             record.update(
-                status_detail=state.status_detail,
+                # prefer Devin's chat narration over the coarse working/waiting flag
+                status_detail=narration,
                 acus_consumed=state.acus_consumed or record["acus_consumed"],
                 pr_url=record["pr_url"] or early_pr,
             )
             self.store.upsert_result(record)
 
         try:
-            final = self.devin.poll_until_done(session_id, on_poll=on_poll)
+            # done = terminal status, or structured output carrying the PR URL.
+            # (Devin initializes structured_output early — its mere presence
+            # is NOT completion; issue #4 taught us that.)
+            final = self.devin.poll_until_done(
+                session_id,
+                on_poll=on_poll,
+                done_when=lambda s: s.status in TERMINAL_STATUSES
+                or bool((s.structured_output or {}).get("pr_url")),
+            )
             output = final.structured_output or {}
             # A session that delivered its structured output idles at
-            # status="running" — record that as finished.
-            outcome = "finished" if output else final.status
+            # status="running" — record that as finished. The output must
+            # carry the PR URL: Devin fills the schema in incrementally,
+            # so partial output is progress, not completion.
+            outcome = "finished" if output.get("pr_url") else final.status
             record.update(
                 status=outcome,
                 status_detail=None,
@@ -177,12 +212,18 @@ class Orchestrator:
             )
             logger.info("%s issue #%s — pr=%s acus=%s", outcome.upper(), issue.number, record["pr_url"], final.acus_consumed)
             self.store.upsert_result(record)
+            self.store.append_event(
+                f"Issue #{issue.number} {outcome}" + (f" — {record['pr_url']}" if record["pr_url"] else ""),
+                issue.number,
+                "done" if outcome == "finished" else "error",
+            )
             if outcome == "finished":
                 self.watch_followups(issue, session_id, record)
         except Exception:
             logger.exception("FAILED while polling session %s (issue #%s)", session_id, issue.number)
             record.update(status="failed", finished_at=utcnow(), summary="polling failed (see logs)")
             self.store.upsert_result(record)
+            self.store.append_event(f"Issue #{issue.number}: polling failed", issue.number, "error")
 
     def watch_followups(self, issue: Issue, session_id: str, record: dict) -> None:
         """A 'finished' session stays alive to address PR review comments.
@@ -196,9 +237,9 @@ class Orchestrator:
             self._stop.wait(interval)
             try:
                 state = self.devin.get_session(session_id)
-            except Exception:
-                logger.exception("follow-up poll failed for session %s", session_id)
-                return
+            except Exception as exc:
+                logger.warning("follow-up poll failed (%s); will retry", type(exc).__name__)
+                continue
             if state.status in ("suspended", "stopped", "expired", "finished"):
                 logger.info("session %s settled (%s); follow-up watch done for issue #%s", session_id, state.status, issue.number)
                 return
@@ -206,6 +247,7 @@ class Orchestrator:
             if state.status_detail == "working":
                 if record["status"] != "updating":
                     logger.info("UPDATING issue #%s — session addressing PR feedback", issue.number)
+                    self.store.append_event(f"Issue #{issue.number}: Devin addressing PR review feedback", issue.number, "devin")
                 record.update(status="updating", status_detail="addressing PR feedback")
             else:
                 record.update(
@@ -223,8 +265,8 @@ class Orchestrator:
         """One fetch-and-dispatch cycle. Returns how many issues were dispatched."""
         try:
             labeled = self.issues.fetch_labeled_issues()
-        except Exception:
-            logger.exception("FAILED to fetch issues; will retry next cycle")
+        except Exception as exc:
+            logger.warning("issue fetch failed (%s); retrying next cycle", type(exc).__name__)
             return 0
         fresh = select_new_issues(labeled, self.store.processed)
         for issue in fresh:
@@ -235,7 +277,7 @@ class Orchestrator:
 
     def run(self, run_once: bool = False) -> None:
         logger.info(
-            "orchestrator up — devin=%s issues=%s poll_interval=%ss",
+            "orchestrator up [build: pr-gated-completion+retries] — devin=%s issues=%s poll_interval=%ss",
             type(self.devin).__name__,
             type(self.issues).__name__,
             self.poll_interval,
@@ -247,12 +289,25 @@ class Orchestrator:
             if run_once:
                 break
             self._stop.wait(self.poll_interval)
+        # In RUN_ONCE mode wait for everything; otherwise give threads a
+        # short grace period — they are daemons polling sessions that keep
+        # running in Devin's cloud regardless of this process.
+        deadline = None if run_once else time.monotonic() + 15
         for thread in self._threads:
-            thread.join()
+            thread.join(None if deadline is None else max(0.1, deadline - time.monotonic()))
+        stragglers = [t.name for t in self._threads if t.is_alive()]
+        if stragglers:
+            logger.warning(
+                "exiting with %d session-tracker(s) still in flight (%s) — "
+                "sessions continue in Devin's cloud", len(stragglers), ", ".join(stragglers),
+            )
         logger.info("orchestrator stopped — %d result(s) in %s", len(self.store.results), self.store.results_path)
 
     def stop(self, *_args) -> None:
-        logger.info("shutdown requested; waiting for in-flight sessions…")
+        if self._stop.is_set():  # second Ctrl-C = force quit
+            logger.warning("force exit")
+            os._exit(130)
+        logger.info("shutdown requested; finishing up (Ctrl-C again to force quit)…")
         self._stop.set()
 
 

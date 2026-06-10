@@ -19,6 +19,44 @@ Devin's automated review caught an edge case the issue's acceptance criteria mis
 
 ![Dashboard](docs/dashboard.png)
 
+## Remediated issues
+
+| Issue (on the fork) | Devin's PR | Outcome |
+|---|---|---|
+| [#2 — "Duplicate" button enabled with empty name field](https://github.com/madelinehpark/superset/issues/2) | [#8](https://github.com/madelinehpark/superset/pull/8) | **Merged.** Devin's auto-review additionally caught an Enter-key validation bypass the acceptance criteria missed, and fixed it pre-review. |
+| [#3 — Relative time comparison offsets aggregate the full shifted bucket](https://github.com/madelinehpark/superset/issues/3) | [#9](https://github.com/madelinehpark/superset/pull/9) | **Merged.** Backend data-correctness fix in query time-offset logic, with unit tests. |
+| [#4 — `expose_in_sqllab=false` databases shown in SQL Lab selector](https://github.com/madelinehpark/superset/issues/4) | [#10](https://github.com/madelinehpark/superset/pull/10) | **Merged.** Root cause was filter logic coupled to a layout prop two refactors deep; Devin decoupled them with a dedicated `sqlLabFilter` prop. |
+
+All three are real bugs reported upstream against Apache Superset (apache/superset
+#40405, #40501, #40850), verified present in the fork and unfixed at selection time.
+
+## Why an autonomous engineer
+
+The expensive part of most backlog bugs isn't typing the fix — it's reproducing the
+problem in a running app, tracing the cause, and verifying the change. For the SQL Lab
+regression above, that meant standing up Superset, configuring databases with the flag
+set both ways, and checking a dropdown before and after — work Devin did end-to-end in
+its own sandbox, including watching the fix behave in the live app.
+
+That changes the economics in three ways:
+
+- **Delegation, not supervision.** Each issue here had an objective done-condition, so
+  the agent could be dispatched and left alone. Three issues ran as a fleet; the human
+  role collapsed to reviewing three PRs. An in-IDE assistant produces the same diffs —
+  with you in the chair the whole time, one bug at a time.
+- **The loop closes itself.** Devin's automated review caught an edge case the issue's
+  own acceptance criteria missed (an Enter-key handler bypassing validation) and fixed
+  it before any human saw the PR. Review comments on its PRs are addressed
+  autonomously — feedback becomes a one-sentence reply, not a context switch.
+- **Bounded, visible cost.** Every session is ACU-capped, every fix shows what it cost
+  on the dashboard, and merges stay behind human review. "Labeled = delegated" is safe
+  precisely because the guardrails are structural, not behavioral.
+
+The honest boundary: this works for well-scoped, verifiable work — regressions,
+validation gaps, bugs with reproduction steps. Ambiguous or architectural problems
+still belong to humans. The point of the pipeline is that the well-scoped majority of
+a backlog no longer has to wait for one.
+
 ```
                  ┌────────────────────────────────────────────────────────┐
                  │                      orchestrator                      │

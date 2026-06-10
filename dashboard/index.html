@@ -2,90 +2,259 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Remediation Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remediation — Apache Superset</title>
+<link rel="preconnect" href="https://rsms.me/">
+<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
 <style>
-  :root { --bg:#0f1115; --card:#181b21; --text:#e6e8eb; --muted:#9aa1ab; --line:#2a2f37; }
+  :root {
+    --bg: #08090a;
+    --panel: #0e0f11;
+    --text: #f7f8f8;
+    --muted: #8a8f98;
+    --faint: #62666d;
+    --line: #1d1f23;
+    --accent: #5e6ad2;
+    --green: #4cb782;
+    --red: #eb5757;
+    --amber: #d9a23d;
+  }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text);
-         font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  .wrap { max-width: 880px; margin: 40px auto; padding: 0 20px; }
-  h1 { font-size: 20px; font-weight:600; margin: 0 0 4px; }
-  .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
-  .totals { display:flex; gap:12px; margin-bottom:24px; flex-wrap:wrap; }
-  .tile { background:var(--card); border:1px solid var(--line); border-radius:10px;
-          padding:14px 18px; min-width:120px; }
-  .tile .n { font-size:26px; font-weight:700; }
-  .tile .l { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
-  table { width:100%; border-collapse:collapse; background:var(--card);
-          border:1px solid var(--line); border-radius:10px; overflow:hidden; }
-  th, td { text-align:left; padding:10px 14px; border-bottom:1px solid var(--line); }
-  th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
-  tr:last-child td { border-bottom:none; }
-  .pill { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600; }
-  .running, .dispatching { background:#1d3a5f; color:#7fb6ff; }
-  .finished { background:#16341f; color:#5fd382; }
-  .blocked, .failed { background:#3d1f22; color:#ff8a8a; }
-  a { color:#7fb6ff; text-decoration:none; }
-  a:hover { text-decoration:underline; }
-  .empty { color:var(--muted); padding:24px; text-align:center; }
-  .muted { color:var(--muted); }
+  html { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  @supports (font-variation-settings: normal) { html { font-family: InterVariable, -apple-system, sans-serif; } }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-size: 14px; line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 48px 24px 80px; }
+
+  /* header */
+  header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+  header h1 { font-size: 16px; font-weight: 590; margin: 0; letter-spacing: -0.01em; }
+  header .sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .live { display: inline-flex; align-items: center; gap: 6px; color: var(--green); font-size: 12px; font-weight: 510; }
+  .live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s ease-in-out infinite; }
+
+  /* identity chips */
+  .chips { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; row-gap: 8px; }
+  .seg { display: flex; align-items: center; gap: 8px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid var(--line); background: var(--panel);
+    border-radius: 8px; padding: 7px 12px 7px 8px; font-size: 13px;
+  }
+  .chip img { width: 18px; height: 18px; border-radius: 4px; display: block; }
+  .chip .role { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-right: 2px; }
+  .chip b { font-weight: 510; }
+  .chip .arrow { color: var(--faint); align-self: center; padding: 0 2px; }
+
+  /* guardrails strip */
+  .guardrails {
+    display: flex; gap: 24px; flex-wrap: wrap;
+    border: 1px solid var(--line); background: var(--panel); border-radius: 8px;
+    padding: 12px 16px; margin-top: 12px; font-size: 13px; color: var(--muted);
+  }
+  .guardrails b { color: var(--text); font-weight: 510; }
+  .guardrails code { font-family: "SF Mono", ui-monospace, monospace; font-size: 12px; background: var(--line); padding: 1px 5px; border-radius: 4px; color: var(--muted); }
+
+  /* stats */
+  .stats { display: flex; gap: 28px; margin: 30px 0 8px; }
+  .stat { display: flex; align-items: baseline; gap: 7px; }
+  .stat .n { font-size: 20px; font-weight: 590; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .stat .l { color: var(--muted); font-size: 13px; }
+
+  /* issue list */
+  .list { margin-top: 16px; border-top: 1px solid var(--line); }
+  .row {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 15px 2px; border-bottom: 1px solid var(--line);
+  }
+  .row .main { min-width: 0; }
+  .row .title {
+    font-weight: 510; letter-spacing: -0.005em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .row .meta { color: var(--muted); font-size: 13px; margin-top: 3px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .meta .sep { color: var(--faint); }
+  .row .summary {
+    color: var(--faint); font-size: 13px; margin-top: 5px;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .row .summary img { width: 14px; height: 14px; border-radius: 3px; flex: none; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; }
+  .dot.running, .dot.dispatching { background: var(--amber); }
+  .dot.updating { background: var(--accent); }
+  .dot.finished { background: var(--green); }
+  .dot.blocked, .dot.failed, .dot.suspended { background: var(--red); }
+  .pulse { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+
+  .row .side { flex: none; display: flex; align-items: center; gap: 14px; }
+  .acus { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  a { color: var(--text); text-decoration: none; }
+  a.pr {
+    font-size: 13px; font-weight: 510; color: var(--text); white-space: nowrap;
+    padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px;
+    transition: border-color .15s ease;
+  }
+  a.pr:hover { border-color: var(--faint); }
+  a.session { color: var(--faint); font-size: 12px; }
+  a.session:hover { color: var(--muted); }
+
+  .empty { color: var(--faint); padding: 40px 0; font-size: 13px; }
+  footer { margin-top: 16px; color: var(--faint); font-size: 12px; display: flex; justify-content: space-between; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Auto-Remediation Dashboard</h1>
-  <div class="sub">GitHub issues labeled <code>auto-fix</code> → Devin sessions → pull requests.
-    Updated <span id="updated" class="muted">never</span>.</div>
+  <header>
+    <div>
+      <h1>Autonomous Remediation</h1>
+      <div class="sub">Issues labeled for repair are dispatched to an autonomous engineer and returned as pull requests.</div>
+    </div>
+    <span class="live"><span class="dot"></span>LIVE</span>
+  </header>
 
-  <div class="totals">
-    <div class="tile"><div class="n" id="t-dispatched">0</div><div class="l">Dispatched</div></div>
-    <div class="tile"><div class="n" id="t-inflight">0</div><div class="l">In-flight</div></div>
-    <div class="tile"><div class="n" id="t-succeeded">0</div><div class="l">Succeeded</div></div>
-    <div class="tile"><div class="n" id="t-failed">0</div><div class="l">Failed / blocked</div></div>
+  <div class="chips">
+    <span class="seg">
+      <span class="chip">
+        <img src="https://github.com/apache.png?size=64" alt="">
+        <span class="role">Codebase</span> <b>Apache Superset</b>&nbsp;<span style="color:var(--faint)" id="repo-name">madelinehpark/superset</span>
+      </span>
+      <span class="arrow" style="color:var(--faint)">→</span>
+    </span>
+    <span class="seg">
+      <span class="chip">
+        <img src="https://avatars.githubusercontent.com/in/811515?v=4" alt="">
+        <span class="role">Agent</span> <b>Devin</b>&nbsp;<span style="color:var(--faint)">Cognition</span>
+      </span>
+      <span class="arrow" style="color:var(--faint)">→</span>
+    </span>
+    <span class="seg">
+      <span class="chip">
+        <img src="https://github.com/github.png?size=64" alt="">
+        <span class="role">Output</span> <b>Pull requests</b>
+      </span>
+    </span>
   </div>
 
-  <table>
-    <thead><tr><th>Issue</th><th>Status</th><th>Session</th><th>PR</th><th>ACUs</th><th>Summary</th></tr></thead>
-    <tbody id="rows"><tr><td colspan="6" class="empty">Waiting for results…</td></tr></tbody>
-  </table>
+  <div class="guardrails" id="guardrails">
+    <span>Trigger <b><code id="g-label">auto-fix</code> label</b></span>
+    <span>Spend cap <b><span id="g-cap">5</span> ACU / session</b></span>
+    <span>Dispatch <b>once per issue</b></span>
+    <span>Merge <b>human review required</b></span>
+    <span>Isolation <b>sandboxed agent VM</b></span>
+    <span>Access <b>fork-scoped token</b></span>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="list" id="list"><div class="empty">No sessions yet.</div></div>
+
+  <footer>
+    <span id="spend"></span>
+    <span id="updated"></span>
+  </footer>
 </div>
 
 <script>
-const IN_FLIGHT = new Set(["dispatching", "running"]);
-const SUCCESS = new Set(["finished"]);
+const IN_FLIGHT = new Set(["dispatching", "running", "updating"]);
+const STATUS_LABEL = {
+  dispatching: "Dispatching",
+  running: "In progress",
+  updating: "Addressing review",
+  finished: "Done",
+  blocked: "Blocked",
+  failed: "Failed",
+  suspended: "Suspended",
+};
+const DEVIN_AVATAR = "https://avatars.githubusercontent.com/in/811515?v=4";
+
+async function loadConfig() {
+  try {
+    const resp = await fetch("/state/config.json", { cache: "no-store" });
+    if (!resp.ok) return;
+    const cfg = await resp.json();
+    if (cfg.label) document.getElementById("g-label").textContent = cfg.label;
+    if (cfg.max_acu_limit) document.getElementById("g-cap").textContent = cfg.max_acu_limit;
+    if (cfg.repo) document.getElementById("repo-name").textContent = cfg.repo;
+    if (cfg.devin_mode === "mock") {
+      const live = document.querySelector(".live");
+      live.innerHTML = '<span class="dot" style="background:var(--amber)"></span>SIMULATION';
+      live.style.color = "var(--amber)";
+    }
+  } catch (e) { /* keep defaults */ }
+}
+loadConfig();
+
+function elapsed(r) {
+  if (!r.started_at) return null;
+  const end = r.finished_at ? new Date(r.finished_at) : new Date();
+  const secs = Math.max(0, Math.round((end - new Date(r.started_at)) / 1000));
+  const m = Math.floor(secs / 60);
+  return m >= 1 ? `${m}m` : `${secs}s`;
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+}
+
+function cleanTitle(t) {
+  return (t || "").replace(/^\w+\([\w-]+\):\s*/, "").replace(/^./, c => c.toUpperCase());
+}
 
 async function refresh() {
   let results = [];
   try {
     const resp = await fetch("/state/results.json", { cache: "no-store" });
     if (resp.ok) results = await resp.json();
-  } catch (e) { /* state file may not exist yet */ }
+  } catch (e) { /* not written yet */ }
 
-  document.getElementById("t-dispatched").textContent = results.length;
-  document.getElementById("t-inflight").textContent = results.filter(r => IN_FLIGHT.has(r.status)).length;
-  document.getElementById("t-succeeded").textContent = results.filter(r => SUCCESS.has(r.status)).length;
-  document.getElementById("t-failed").textContent =
-    results.filter(r => !IN_FLIGHT.has(r.status) && !SUCCESS.has(r.status)).length;
+  const inflight = results.filter(r => IN_FLIGHT.has(r.status)).length;
+  const done = results.filter(r => r.status === "finished").length;
+  const failed = results.length - inflight - done;
+  document.getElementById("stats").innerHTML = [
+    [results.length, "Dispatched"],
+    [inflight, "In progress"],
+    [done, "Done"],
+    [failed, "Needs attention"],
+  ].map(([n, l]) => `<div class="stat"><span class="n">${n}</span><span class="l">${l}</span></div>`).join("");
 
-  const rows = document.getElementById("rows");
+  const totalAcus = results.reduce((s, r) => s + (r.acus_consumed || 0), 0);
+  document.getElementById("spend").textContent =
+    totalAcus ? `total agent spend: ${Math.round(totalAcus * 10) / 10} ACUs` : "";
+
+  const list = document.getElementById("list");
   if (!results.length) {
-    rows.innerHTML = '<tr><td colspan="6" class="empty">No sessions yet — label an issue <code>auto-fix</code>.</td></tr>';
+    list.innerHTML = '<div class="empty">No sessions yet — label an issue <code style="font-family:inherit">auto-fix</code> to dispatch one.</div>';
   } else {
-    rows.innerHTML = results.map(r => `
-      <tr>
-        <td>#${r.issue_number} <span class="muted">${escapeHtml(r.issue_title || "")}</span></td>
-        <td><span class="pill ${r.status}">${r.status}</span></td>
-        <td class="muted">${r.session_id || "—"}</td>
-        <td>${r.pr_url ? `<a href="${r.pr_url}" target="_blank">PR ↗</a>` : "—"}</td>
-        <td class="muted">${r.acus_consumed ?? "—"}</td>
-        <td class="muted">${escapeHtml(r.summary || "")}</td>
-      </tr>`).join("");
+    list.innerHTML = results.map(r => {
+      const live = IN_FLIGHT.has(r.status);
+      const meta = [
+        `#${r.issue_number}`,
+        `<span class="dot ${esc(r.status)}${live ? " pulse" : ""}"></span> ${STATUS_LABEL[r.status] || esc(r.status)}` +
+          (r.status_detail ? ` — ${esc(r.status_detail)}` : ""),
+        elapsed(r),
+        r.session_url ? `<a class="session" href="${esc(r.session_url)}" target="_blank">session ↗</a>` : null,
+      ].filter(Boolean).join('<span class="sep">·</span>');
+      const summary = r.summary
+        ? `<div class="summary"><img src="${DEVIN_AVATAR}" alt="Devin">${esc(r.summary)}</div>` : "";
+      return `
+      <div class="row">
+        <div class="main">
+          <div class="title">${esc(cleanTitle(r.issue_title))}</div>
+          <div class="meta">${meta}</div>
+          ${summary}
+        </div>
+        <div class="side">
+          ${r.acus_consumed ? `<span class="acus">${r.acus_consumed} ACU</span>` : ""}
+          ${r.pr_url ? `<a class="pr" href="${esc(r.pr_url)}" target="_blank">View PR →</a>` : ""}
+        </div>
+      </div>`;
+    }).join("");
   }
-  document.getElementById("updated").textContent = new Date().toLocaleTimeString();
-}
-
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+  document.getElementById("updated").textContent = "updated " + new Date().toLocaleTimeString();
 }
 
 refresh();

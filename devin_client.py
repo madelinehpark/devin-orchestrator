@@ -38,6 +38,8 @@ class SessionState:
     status: str
     structured_output: Optional[dict] = None
     acus_consumed: Optional[float] = None
+    status_detail: Optional[str] = None
+    pull_requests: Optional[list] = None
 
     @property
     def is_done(self) -> bool:
@@ -63,16 +65,21 @@ class DevinClient(abc.ABC):
         timeout_seconds: int = 60 * 60,
         backoff_initial: float = 5.0,
         backoff_cap: float = 30.0,
+        on_poll=None,
     ) -> SessionState:
         """Poll with exponential backoff (capped) until blocked/finished.
 
         Sessions routinely run 15–45 minutes, so the default overall
         timeout is generous. Raises TimeoutError if exceeded.
+        `on_poll(state)` is invoked after every poll, so callers can
+        surface live progress (status_detail, ACUs, early PR links).
         """
         deadline = time.monotonic() + timeout_seconds
         delay = backoff_initial
         while True:
             state = self.get_session(session_id)
+            if on_poll:
+                on_poll(state)
             if state.is_done:
                 logger.info(
                     "session %s done (status=%s, structured_output=%s)",
@@ -155,6 +162,8 @@ class RealDevinClient(DevinClient):
             status=str(status).lower(),
             structured_output=data.get("structured_output"),
             acus_consumed=data.get("acus_consumed"),
+            status_detail=data.get("status_detail"),
+            pull_requests=data.get("pull_requests"),
         )
 
 
@@ -195,25 +204,38 @@ class MockDevinClient(DevinClient):
             raise KeyError(f"unknown mock session: {session_id}")
         scenario = self._scenario[session_id]
         self._polls[session_id] += 1
-        if self._polls[session_id] <= self.POLLS_BEFORE_TERMINAL[scenario]:
-            return SessionState(session_id=session_id, status="running")
+        poll = self._polls[session_id]
+        details = ["Reading the issue", "Implementing fix", "Running tests", "Running tests", "Opening pull request"]
+        if poll <= self.POLLS_BEFORE_TERMINAL[scenario]:
+            return SessionState(
+                session_id=session_id,
+                status="running",
+                status_detail=details[min(poll - 1, len(details) - 1)],
+                acus_consumed=round(0.3 * poll, 1),
+            )
         if scenario == "blocked":
             return SessionState(
                 session_id=session_id,
                 status="blocked",
                 structured_output=None,
+                status_detail="Waiting for user input",
                 acus_consumed=1.5,
             )
-        # like the real API: status stays "running", structured_output appears
+        # like the real API: status stays "running", structured_output appears,
+        # status_detail flips to waiting_for_user, then the session suspends
+        pr_url = f"https://github.com/example/repo/pull/{900 + self._index[session_id]}"
+        done_polls = poll - self.POLLS_BEFORE_TERMINAL[scenario]
         return SessionState(
             session_id=session_id,
-            status="running",
+            status="suspended" if done_polls > 2 else "running",
             structured_output={
-                "pr_url": f"https://github.com/example/repo/pull/{900 + self._index[session_id]}",
+                "pr_url": pr_url,
                 "status": "success",
                 "summary": f"Mock: fixed the issue and opened a PR ({scenario} path).",
             },
             acus_consumed=2.0,
+            status_detail="waiting_for_user",
+            pull_requests=[{"pr_url": pr_url, "pr_state": "open"}],  # live v3 shape
         )
 
 

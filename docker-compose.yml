@@ -10,6 +10,7 @@ services:
       ORCHESTRATOR_LABEL: ${ORCHESTRATOR_LABEL:-auto-fix}
       MAX_ACU_LIMIT: ${MAX_ACU_LIMIT:-5}
       POLL_INTERVAL: ${POLL_INTERVAL:-30}
+      FOLLOWUP_POLL_INTERVAL: ${FOLLOWUP_POLL_INTERVAL:-60}
     volumes:
       - ./state:/app/state
 

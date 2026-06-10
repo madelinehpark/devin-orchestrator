@@ -118,7 +118,9 @@ class Orchestrator:
             "issue_number": issue.number,
             "issue_title": issue.title,
             "session_id": None,
+            "session_url": None,
             "status": "dispatching",
+            "status_detail": None,
             "pr_url": None,
             "summary": None,
             "acus_consumed": None,
@@ -135,29 +137,85 @@ class Orchestrator:
             self.store.mark_processed(issue.number)
             return
 
-        record.update(session_id=session_id, status="running")
+        record.update(
+            session_id=session_id,
+            session_url=f"https://app.devin.ai/sessions/{session_id}",
+            status="running",
+        )
         self.store.upsert_result(record)
         self.store.mark_processed(issue.number)  # never dispatch the same issue twice
         logger.info("RUNNING issue #%s in session %s", issue.number, session_id)
 
+        def on_poll(state) -> None:
+            """Surface live progress: detail text, ACU burn, early PR link."""
+            prs = state.pull_requests or []
+            early_pr = None
+            if prs:
+                first = prs[0]
+                # live v3 shape: {"pr_url": ..., "pr_state": "open"}
+                early_pr = (first.get("pr_url") or first.get("url")) if isinstance(first, dict) else str(first)
+            record.update(
+                status_detail=state.status_detail,
+                acus_consumed=state.acus_consumed or record["acus_consumed"],
+                pr_url=record["pr_url"] or early_pr,
+            )
+            self.store.upsert_result(record)
+
         try:
-            final = self.devin.poll_until_done(session_id)
+            final = self.devin.poll_until_done(session_id, on_poll=on_poll)
             output = final.structured_output or {}
             # A session that delivered its structured output idles at
             # status="running" — record that as finished.
             outcome = "finished" if output else final.status
             record.update(
                 status=outcome,
-                pr_url=output.get("pr_url") or None,
+                status_detail=None,
+                pr_url=output.get("pr_url") or record["pr_url"],
                 summary=output.get("summary"),
-                acus_consumed=final.acus_consumed,
+                acus_consumed=final.acus_consumed or record["acus_consumed"],
                 finished_at=utcnow(),
             )
             logger.info("%s issue #%s — pr=%s acus=%s", outcome.upper(), issue.number, record["pr_url"], final.acus_consumed)
+            self.store.upsert_result(record)
+            if outcome == "finished":
+                self.watch_followups(issue, session_id, record)
         except Exception:
             logger.exception("FAILED while polling session %s (issue #%s)", session_id, issue.number)
             record.update(status="failed", finished_at=utcnow(), summary="polling failed (see logs)")
-        self.store.upsert_result(record)
+            self.store.upsert_result(record)
+
+    def watch_followups(self, issue: Issue, session_id: str, record: dict) -> None:
+        """A 'finished' session stays alive to address PR review comments.
+        Devin's status_detail flips to "working" when it picks one up —
+        surface that as status="updating", then refresh the summary when it
+        goes idle again. Ends when the session suspends (or after 2 hours).
+        """
+        deadline = time.monotonic() + 2 * 60 * 60
+        interval = int(os.environ.get("FOLLOWUP_POLL_INTERVAL", "60"))
+        while time.monotonic() < deadline and not self._stop.is_set():
+            self._stop.wait(interval)
+            try:
+                state = self.devin.get_session(session_id)
+            except Exception:
+                logger.exception("follow-up poll failed for session %s", session_id)
+                return
+            if state.status in ("suspended", "stopped", "expired", "finished"):
+                logger.info("session %s settled (%s); follow-up watch done for issue #%s", session_id, state.status, issue.number)
+                return
+            output = state.structured_output or {}
+            if state.status_detail == "working":
+                if record["status"] != "updating":
+                    logger.info("UPDATING issue #%s — session addressing PR feedback", issue.number)
+                record.update(status="updating", status_detail="addressing PR feedback")
+            else:
+                record.update(
+                    status="finished",
+                    status_detail=None,
+                    summary=output.get("summary") or record["summary"],
+                    pr_url=output.get("pr_url") or record["pr_url"],
+                    acus_consumed=state.acus_consumed or record["acus_consumed"],
+                )
+            self.store.upsert_result(record)
 
     # ---- main loop -----------------------------------------------------------
 
@@ -211,6 +269,14 @@ def main() -> None:
         store=StateStore(),
         poll_interval=int(os.environ.get("POLL_INTERVAL", "30")),
     )
+    # publish the active config so the dashboard reflects reality
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    (STATE_DIR / "config.json").write_text(json.dumps({
+        "repo": os.environ.get("GITHUB_REPO", "madelinehpark/superset"),
+        "label": os.environ.get("ORCHESTRATOR_LABEL", "auto-fix"),
+        "max_acu_limit": int(os.environ.get("MAX_ACU_LIMIT", "5")),
+        "devin_mode": os.environ.get("DEVIN_MODE", "mock"),
+    }, indent=2))
     signal.signal(signal.SIGTERM, orchestrator.stop)
     signal.signal(signal.SIGINT, orchestrator.stop)
     orchestrator.run(run_once=os.environ.get("RUN_ONCE", "") == "1")
